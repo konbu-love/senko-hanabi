@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>線香花火</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&family=Zen+Kaku+Gothic+New:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --night-top:#0b1024;
+    --night-low:#05070f;
+    --paper:#efe3c8;
+    --paper-dim:#8f96ad;
+    --ember:#ffb85c;
+    --ember-deep:#e08a2a;
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{
+    margin:0; height:100%; overflow:hidden;
+    background:linear-gradient(180deg, var(--night-top) 0%, #080c1a 55%, var(--night-low) 100%);
+    color:var(--paper);
+    font-family:'Zen Kaku Gothic New', sans-serif;
+    touch-action:manipulation;
+    user-select:none; -webkit-user-select:none;
+  }
+  canvas{
+    position:fixed; left:0; top:0; width:100vw; height:100vh; height:100dvh;
+    pointer-events:none; display:block;
+  }
+
+  .chrome{ transition:opacity .9s ease; }
+  body.burning .chrome{ opacity:0; pointer-events:none; }
+
+  /* 縦書きの題と手引き */
+  .heading{
+    position:fixed; top:26px; right:18px;
+    writing-mode:vertical-rl;
+    display:flex; gap:12px;
+  }
+  .heading h1{
+    margin:0;
+    font-family:'Shippori Mincho', serif;
+    font-weight:700; font-size:24px; letter-spacing:.38em;
+    color:var(--paper);
+    text-shadow:0 0 18px rgba(255,184,92,.35);
+  }
+  .heading p{
+    margin:6px 0 0; font-size:11.5px; letter-spacing:.22em; line-height:1.9;
+    color:var(--paper-dim);
+  }
+
+  /* 段の名前 */
+  .stage-name{
+    position:fixed; top:27%; right:11%;
+    writing-mode:vertical-rl;
+    display:flex; gap:6px; align-items:flex-start;
+    font-family:'Shippori Mincho', serif;
+    opacity:0; transition:opacity 1.1s ease;
+    pointer-events:none;
+    text-shadow:0 0 20px rgba(5,7,15,.9), 0 0 6px rgba(5,7,15,.9);
+  }
+  .stage-name.show{ opacity:.92; }
+  .stage-name .kanji{ font-size:34px; font-weight:500; letter-spacing:.3em; }
+  .stage-name .kana{ font-size:11px; letter-spacing:.3em; color:var(--paper-dim); margin-top:4px; }
+
+  /* 色の丸 */
+  .bead{
+    position:fixed; width:44px; height:44px; margin:-22px 0 0 -22px;
+    border-radius:50%; border:1.5px solid rgba(255,255,255,.22); padding:0;
+    background:
+      radial-gradient(circle at 34% 30%, rgba(255,255,255,.6), transparent 42%),
+      var(--c);
+    box-shadow:0 0 18px -3px var(--c), inset 0 -7px 10px rgba(0,0,0,.28);
+    cursor:pointer;
+    transition:transform .14s ease, opacity .9s ease;
+  }
+  .bead:active{ transform:scale(.86); }
+  .bead:focus-visible, .btn:focus-visible{ outline:2px solid var(--paper); outline-offset:3px; }
+
+  .controls{
+    position:fixed; left:0; right:0;
+    bottom:calc(22px + env(safe-area-inset-bottom, 0px));
+    display:flex; justify-content:center; align-items:center; gap:10px;
+    padding:0 16px;
+  }
+  .btn{
+    font-family:inherit; font-weight:700; font-size:13px; letter-spacing:.12em;
+    min-height:46px; padding:0 18px; border-radius:999px;
+    border:1px solid rgba(239,227,200,.22);
+    background:rgba(10,14,28,.55); color:var(--paper);
+    cursor:pointer; transition:transform .1s ease;
+    -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px);
+  }
+  .btn:active{ transform:scale(.96); }
+  .btn.primary{
+    border:none; color:#2b1803; padding:0 26px; font-size:14px;
+    background:linear-gradient(180deg, #ffd08a, var(--ember-deep));
+    box-shadow:0 0 26px rgba(255,184,92,.4);
+  }
+</style>
+</head>
+<body>
+<canvas id="fx"></canvas>
+<canvas id="scene"></canvas>
+
+<div class="heading chrome">
+  <h1>線香花火</h1>
+  <p>丸に触れて、色を仕込む。<br>火は下から上へ、色を混ぜながら昇る。</p>
+</div>
+
+<div class="stage-name" id="stageName" aria-live="polite">
+  <span class="kanji" id="stageKanji"></span><span class="kana" id="stageKana"></span>
+</div>
+
+<div id="beads" class="chrome"></div>
+
+<div class="controls chrome">
+  <button class="btn" id="shuffleBtn">おまかせ</button>
+  <button class="btn primary" id="lightBtn">火をつける</button>
+  <button class="btn" id="soundBtn" aria-pressed="true">音 あり</button>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  // ---------- 色 ----------
+  const PAL = [
+    {rgb:[87,194,106],  name:'緑'},
+    {rgb:[255,211,90],  name:'黄'},
+    {rgb:[255,90,90],   name:'赤'},
+    {rgb:[74,168,255],  name:'青'},
+    {rgb:[255,154,61],  name:'橙'},
+    {rgb:[197,121,234], name:'紫'}
+  ];
+  const ROWS = 5;
+  // 上の段が index 0、下の段が index 4
+  let grid = [[0,1],[2,3],[4,1],[4,1],[2,2]];
+
+  const STAGES = [
+    ['蕾','つぼみ'], ['牡丹','ぼたん'], ['松葉','まつば'], ['柳','やなぎ'], ['散り菊','ちりぎく']
+  ];
+  const DUR = [3400, 5200, 7000, 5600, 5600];
+  const IGNITE_MS = 1300, LINGER_MS = 1100, AFTER_MS = 2600;
+
+  const rnd = (a,b)=> a + Math.random()*(b-a);
+  const clamp = (v,a,b)=> Math.max(a, Math.min(b, v));
+  const css = (c,a)=> 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')';
+  const hexOf = c => 'rgb('+c[0]+','+c[1]+','+c[2]+')';
+  const lerpC = (a,b,t)=> [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t];
+  const roundC = c => [Math.round(c[0]), Math.round(c[1]), Math.round(c[2])];
+  const WHITE = [255,255,255];
+
+  // 混ぜても濁らないように、平均したあと明るく鮮やかに寄せる
+  function mix(list){
+    let r=0,g=0,b=0;
+    for(const c of list){ r+=c[0]; g+=c[1]; b+=c[2]; }
+    const n = list.length; r/=n; g/=n; b/=n;
+    const mn = Math.min(r,g,b);
+    r-=mn*0.35; g-=mn*0.35; b-=mn*0.35;
+    const s = 255/(Math.max(r,g,b)||1);
+    return roundC([r*s,g*s,b*s]);
+  }
+  const hot = c => roundC(lerpC(mix([c]), WHITE, 0.16));
+  const rowMix = r => mix([PAL[grid[r][0]].rgb, PAL[grid[r][1]].rgb]);
+
+  // ---------- 画面 ----------
+  const fx = document.getElementById('fx');
+  const sc = document.getElementById('scene');
+  const fxc = fx.getContext('2d');
+  const scc = sc.getContext('2d');
+  let W=0,H=0,DPR=1,u=1,cx=0,gap=50,topRowY=100,tipY=0,waterY=0,landY=0;
+  let stars=[];
+
+  const rowY = r => topRowY + r*gap;
+
+  function resize(){
+    W = window.innerWidth; H = window.innerHeight;
+    DPR = Math.min(window.devicePixelRatio||1, 2);
+    for(const c of [fx,sc]){ c.width = Math.round(W*DPR); c.height = Math.round(H*DPR); }
+    fxc.setTransform(DPR,0,0,DPR,0,0);
+    scc.setTransform(DPR,0,0,DPR,0,0);
+    cx = W/2;
+    u = clamp(Math.min(W, H*0.62)/400, 0.8, 1.5);
+    gap = clamp(H*0.066, 46, 58);
+    topRowY = Math.max(96, H*0.16);
+    tipY = rowY(ROWS-1) + gap/2 + 14;
+    waterY = Math.round(Math.max(tipY + 60, H*0.74));
+    landY = waterY + Math.min(46, (H-waterY)*0.4);
+    stars = [];
+    const n = Math.round(W*H/9000);
+    for(let i=0;i<n;i++){
+      stars.push({x:Math.random()*W, y:Math.random()*waterY*0.92, s:rnd(0.5,1.4), p:Math.random()*6.28, f:rnd(0.4,1.4)});
+    }
+    placeBeads();
+  }
+
+  // ---------- 色の丸 ----------
+  const beadsEl = document.getElementById('beads');
+  const beadBtns = [];
+  const SIDE = 34;
+  for(let r=0;r<ROWS;r++){
+    beadBtns.push([]);
+    for(let c=0;c<2;c++){
+      const b = document.createElement('button');
+      b.className = 'bead';
+      b.addEventListener('click', ()=>{
+        if(phase!=='idle') return;
+        grid[r][c] = (grid[r][c]+1) % PAL.length;
+        paintBead(r,c);
+        initAudio();
+        const col = hot(PAL[grid[r][c]].rgb);
+        const bx = cx + (c?SIDE:-SIDE), by = rowY(r);
+        for(let i=0;i<7;i++){
+          spawn(bx, by, {ang:rnd(0,6.283), speed:rnd(2,4.5), life:rnd(6,11), w:1.1, col:col, g:0.05});
+        }
+        crackle(0.06);
+      });
+      beadsEl.appendChild(b);
+      beadBtns[r].push(b);
+    }
+  }
+  function paintBead(r,c){
+    const p = PAL[grid[r][c]];
+    const b = beadBtns[r][c];
+    b.style.setProperty('--c', hexOf(p.rgb));
+    b.setAttribute('aria-label', '下から'+(ROWS-r)+'段目の'+(c?'右':'左')+'、いまは'+p.name+'。押すと色が変わる');
+  }
+  function paintAll(){ for(let r=0;r<ROWS;r++) for(let c=0;c<2;c++) paintBead(r,c); }
+  function placeBeads(){
+    for(let r=0;r<ROWS;r++) for(let c=0;c<2;c++){
+      const b = beadBtns[r][c];
+      b.style.left = (cx + (c?SIDE:-SIDE))+'px';
+      b.style.top = rowY(r)+'px';
+    }
+  }
+
+  // ---------- 音 ----------
+  let ac=null, master=null, noiseBuf=null, hissGain=null, soundOn=true, lastCrackle=0;
+  function initAudio(){
+    if(ac){ audioPaused = false; if(ac.state==='suspended') ac.resume(); return; }
+    try{
+      const AC = window.AudioContext || window.webkitAudioContext;
+      ac = new AC();
+      master = ac.createGain(); master.gain.value = soundOn?1:0; master.connect(ac.destination);
+      const len = ac.sampleRate;
+      noiseBuf = ac.createBuffer(1, len, ac.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for(let i=0;i<len;i++) d[i] = Math.random()*2-1;
+      const hs = ac.createBufferSource(); hs.buffer = noiseBuf; hs.loop = true;
+      const hf = ac.createBiquadFilter(); hf.type='highpass'; hf.frequency.value=4200;
+      hissGain = ac.createGain(); hissGain.gain.value = 0;
+      hs.connect(hf); hf.connect(hissGain); hissGain.connect(master); hs.start();
+    }catch(e){ ac=null; }
+  }
+  function setHiss(v){ if(ac && hissGain) hissGain.gain.setTargetAtTime(v, ac.currentTime, 0.15); }
+  function crackle(strength){
+    if(!ac || !soundOn) return;
+    const now = ac.currentTime;
+    if(now - lastCrackle < 0.016) return;
+    lastCrackle = now;
+    const src = ac.createBufferSource(); src.buffer = noiseBuf;
+    const f = ac.createBiquadFilter(); f.type='bandpass';
+    f.frequency.value = rnd(2200,7400); f.Q.value = rnd(0.8,2.6);
+    const g = ac.createGain();
+    const dur = rnd(0.012,0.04);
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.linearRampToValueAtTime(strength, now+0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, now+dur);
+    src.connect(f); f.connect(g); g.connect(master);
+    src.start(now, Math.random()*0.9, dur+0.03);
+  }
+  function whoosh(){ // 着火
+    if(!ac || !soundOn) return;
+    const now = ac.currentTime;
+    const src = ac.createBufferSource(); src.buffer = noiseBuf;
+    const f = ac.createBiquadFilter(); f.type='bandpass'; f.Q.value=1.2;
+    f.frequency.setValueAtTime(1400, now); f.frequency.exponentialRampToValueAtTime(5200, now+0.4);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, now); g.gain.linearRampToValueAtTime(0.09, now+0.06);
+    g.gain.exponentialRampToValueAtTime(0.0001, now+0.55);
+    src.connect(f); f.connect(g); g.connect(master); src.start(now, 0, 0.6);
+  }
+  function sizzle(){ // 水に落ちる
+    if(!ac || !soundOn) return;
+    const now = ac.currentTime;
+    const src = ac.createBufferSource(); src.buffer = noiseBuf;
+    const f = ac.createBiquadFilter(); f.type='highpass';
+    f.frequency.setValueAtTime(3200, now); f.frequency.exponentialRampToValueAtTime(900, now+0.5);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.2, now); g.gain.exponentialRampToValueAtTime(0.0001, now+0.7);
+    src.connect(f); f.connect(g); g.connect(master); src.start(now, 0, 0.75);
+    const o = ac.createOscillator(); o.type='sine';
+    o.frequency.setValueAtTime(190, now); o.frequency.exponentialRampToValueAtTime(70, now+0.14);
+    const og = ac.createGain();
+    og.gain.setValueAtTime(0.14, now); og.gain.exponentialRampToValueAtTime(0.0001, now+0.18);
+    o.connect(og); og.connect(master); o.start(now); o.stop(now+0.2);
+  }
+
+  // ---------- 火花 ----------
+  let parts = [];
+  let flash = 0;
+
+  function spawn(x,y,o){
+    const sp = o.speed*u;
+    parts.push({
+      x:x, y:y, px:x, py:y,
+      vx:Math.cos(o.ang)*sp, vy:Math.sin(o.ang)*sp,
+      ang:o.ang, sp:sp,
+      age:0, life:o.life, w:o.w||1.2, col:o.col,
+      g:(o.g===undefined?0.03:o.g)*u, drag:o.drag||1,
+      next:o.next||null, core:!!o.core, smoke:!!o.smoke,
+      wo:rnd(4,26)
+    });
+  }
+
+  function split(p){
+    const nx = p.next;
+    const n = Math.round(rnd(nx.n[0], nx.n[1]));
+    for(let i=0;i<n;i++){
+      const again = nx.next && Math.random() < (nx.again===undefined?1:nx.again);
+      spawn(p.x, p.y, {
+        ang: p.ang + rnd(-nx.spread, nx.spread),
+        speed: (p.sp/u) * rnd(nx.mul[0], nx.mul[1]),
+        life: rnd(nx.life[0], nx.life[1]),
+        w: nx.w, col: kidColor(), g: nx.g,
+        next: again ? nx.next : null
+      });
+    }
+    // はじける点
+    fxc.fillStyle = 'rgba(255,250,235,0.9)';
+    fxc.beginPath(); fxc.arc(p.x, p.y, 1.6*u, 0, 6.283); fxc.fill();
+    crackle(nx.snd || 0.08);
+  }
+
+  function stepParts(k){
+    fxc.lineCap = 'round';
+    for(let i=parts.length-1;i>=0;i--){
+      const p = parts[i];
+      p.px = p.x; p.py = p.y;
+      if(p.drag!==1){ const d = Math.pow(p.drag,k); p.vx*=d; p.vy*=d; }
+      p.vy += p.g*k;
+      p.x += p.vx*k; p.y += p.vy*k;
+      p.age += k;
+      const a = clamp((1 - p.age/p.life)*1.8, 0, 1);
+      if(p.smoke){
+        fxc.fillStyle = css(p.col, 0.05*a);
+        fxc.beginPath(); fxc.arc(p.x, p.y, (3+p.age*0.25)*u, 0, 6.283); fxc.fill();
+      }else{
+        fxc.strokeStyle = css(p.col, a);
+        fxc.lineWidth = p.w*u;
+        fxc.beginPath(); fxc.moveTo(p.px,p.py); fxc.lineTo(p.x,p.y); fxc.stroke();
+        if(p.core){
+          fxc.strokeStyle = 'rgba(255,248,228,'+(a*0.7)+')';
+          fxc.lineWidth = p.w*u*0.45;
+          fxc.beginPath(); fxc.moveTo(p.px,p.py); fxc.lineTo(p.x,p.y); fxc.stroke();
+        }
+      }
+      let dead = false;
+      if(!p.smoke && p.y > waterY + p.wo) dead = true;
+      else if(p.age >= p.life){ if(p.next) split(p); dead = true; }
+      if(dead){ parts[i] = parts[parts.length-1]; parts.pop(); }
+    }
+  }
+
+  // ---------- 進行 ----------
+  let phase = 'idle';   // idle / ignite / burn / linger / fall / after
+  let stage = 0, pt = 0, T = 0;
+  let past = [];
+  let curRow = ROWS-1;
+  let bx = 0, by = 0, pbx = 0, pby = 0, vy = 0;
+  let ballR = 0, ballCol = [255,200,120], targetCol = [255,200,120];
+  let sway = 0, theta = 0;
+  let burstTimer = 0, acc = 0;
+  let ripples = [];
+  let burnt = false;
+
+  const stageNameEl = document.getElementById('stageName');
+  const kanjiEl = document.getElementById('stageKanji');
+  const kanaEl = document.getElementById('stageKana');
+  const lightBtn = document.getElementById('lightBtn');
+
+  function kidColor(){
+    if(past.length && Math.random() < 0.22){
+      const q = past[(Math.random()*past.length)|0];
+      return hot(PAL[grid[q][Math.random()<0.5?0:1]].rgb);
+    }
+    return hot(PAL[grid[curRow][Math.random()<0.5?0:1]].rgb);
+  }
+  const trunkColor = () => roundC(lerpC(ballCol, WHITE, 0.4));
+
+  function enterStage(s){
+    phase = 'burn'; stage = s; pt = 0; curRow = ROWS-1-s;
+    const m = rowMix(curRow);
+    targetCol = mix(past.map(rowMix).concat([m,m]));
+    kanjiEl.textContent = STAGES[s][0];
+    kanaEl.textContent = STAGES[s][1];
+    stageNameEl.classList.add('show');
+    burstTimer = 300; acc = 0;
+    setHiss([0.004,0.008,0.018,0.01,0.005][s]);
+  }
+
+  function light(){
+    if(phase!=='idle') return;
+    initAudio();
+    document.body.classList.add('burning');
+    phase = 'ignite'; pt = 0; past = []; curRow = ROWS-1; burnt = false;
+    by = tipY; ballR = 0; vy = 0;
+    targetCol = [255,196,110]; ballCol = [255,196,110];
+    whoosh(); setHiss(0.012);
+  }
+
+  function finish(){
+    phase = 'idle'; burnt = false;
+    document.body.classList.remove('burning');
+    lightBtn.textContent = 'もう一本';
+  }
+
+  function emit(s, p, k, dt){
+    const col = trunkColor();
+    if(s===0){            // 蕾：玉がふくらみ、終わりぎわに小さく弾ける
+      if(p>0.5 && Math.random() < 0.07*k*(p-0.4)*2){
+        spawn(bx,by,{ang:rnd(0,6.283), speed:rnd(2.5,5), life:rnd(5,9), w:1, col:kidColor()});
+        crackle(0.05); flash = Math.min(1, flash+0.1);
+      }
+    }else if(s===1){      // 牡丹：大きな火花がひとつずつ
+      burstTimer -= dt;
+      if(burstTimer<=0){
+        const n = 1 + Math.floor(Math.random()*(1.4+p*2));
+        for(let i=0;i<n;i++){
+          spawn(bx,by,{ang:rnd(0,6.283), speed:rnd(7,10.5), life:rnd(5,8), w:1.9, col:col, core:true,
+            next:{n:[3,5], spread:1.05, mul:[0.6,0.95], life:[6,11], w:1.5, g:0.05, snd:0.16, again:0.35,
+              next:{n:[2,3], spread:0.7, mul:[0.6,0.9], life:[4,7], w:1, g:0.05, snd:0.07}}});
+        }
+        flash = Math.min(1, flash+0.35);
+        burstTimer = rnd(150,430)*(1.25-p*0.6);
+      }
+    }else if(s===2){      // 松葉：枝分かれする火花が四方へ
+      acc += (0.7 + 2.3*Math.pow(Math.sin(Math.PI*Math.min(1,p*1.08)),0.7))*k;
+      while(acc>=1){
+        acc -= 1;
+        spawn(bx,by,{ang:rnd(0,6.283), speed:rnd(9,14.5), life:rnd(4,7), w:1.5, col:col, core:true,
+          next:{n:[2,3], spread:0.5, mul:[0.7,1.0], life:[4,8], w:1.2, g:0.03, snd:0.11, again:0.6,
+            next:{n:[2,3], spread:0.45, mul:[0.7,1.0], life:[3,6], w:0.9, g:0.03, snd:0.06}}});
+        flash = Math.min(1, flash+0.09);
+      }
+    }else if(s===3){      // 柳：長く尾を引いてしなだれる
+      acc += 0.6*(1-0.45*p)*k;
+      while(acc>=1){
+        acc -= 1;
+        spawn(bx,by,{ang:-Math.PI/2 + rnd(-1.9,1.9), speed:rnd(4.5,8.5), life:rnd(26,44), w:1.15,
+          col:Math.random()<0.35?col:kidColor(), g:0.2, drag:0.966});
+        if(Math.random()<0.4) crackle(0.04);
+        flash = Math.min(1, flash+0.04);
+      }
+    }else{                // 散り菊：細い火花がぽつぽつ
+      acc += (0.34*Math.pow(1-p,1.3)+0.035)*k;
+      while(acc>=1){
+        acc -= 1;
+        spawn(bx,by,{ang:rnd(0,6.283), speed:rnd(3,5.5), life:rnd(7,13), w:0.9, col:kidColor(), g:0.04});
+        if(Math.random()<0.5) crackle(0.035);
+        flash = Math.min(1, flash+0.05);
+      }
+    }
+  }
+
+  function update(dt, k){
+    pt += dt;
+    // 揺れ
+    const swayTarget = (phase==='idle') ? 0 : 1;
+    sway += (swayTarget - sway)*0.02*k;
+    theta = (0.011*Math.sin(T*0.0009) + 0.005*Math.sin(T*0.0023))*sway;
+    flash *= Math.pow(0.9, k);
+    ballCol = lerpC(ballCol, targetCol, 0.05*k);
+
+    let targetR = 0, jit = 0.5;
+    if(phase==='ignite'){
+      const p = Math.min(1, pt/IGNITE_MS);
+      by = tipY - 14*p;
+      targetR = 2;
+      if(Math.random()<0.25*k) spawn(bx,by,{ang:-Math.PI/2+rnd(-1.2,1.2), speed:rnd(1,2.5), life:rnd(6,12), w:0.8, col:[255,190,110], g:-0.02});
+      if(p>=1) enterStage(0);
+    }else if(phase==='burn'){
+      const p = Math.min(1, pt/DUR[stage]);
+      by = rowY(curRow) + gap/2 - gap*p;
+      targetR = [2+6*Math.min(1,p*1.4), 8, 8.6, 7.6-0.6*p, 7-2.4*p][stage];
+      emit(stage, p, k, dt);
+      if(p>0.86) stageNameEl.classList.remove('show');
+      if(p>=1){
+        past.push(curRow);
+        if(stage<4) enterStage(stage+1);
+        else { phase='linger'; pt=0; setHiss(0.002); }
+      }
+    }else if(phase==='linger'){
+      const p = Math.min(1, pt/LINGER_MS);
+      targetR = 4.4; jit = 0.6 + 1.6*p;
+      if(Math.random()<0.03*k) spawn(bx,by,{ang:rnd(0,6.283), speed:rnd(2,3.5), life:rnd(5,8), w:0.8, col:kidColor()});
+      if(p>=1){ phase='fall'; pt=0; vy=0.4; setHiss(0); }
+    }else if(phase==='fall'){
+      targetR = 4.2; jit = 0;
+      vy += 0.34*k*u; by += vy*k;
+      if(by >= landY){
+        by = landY; burnt = true;
+        for(let i=0;i<3;i++) ripples.push({x:bx, y:landY, r:-i*14, life:1});
+        for(let i=0;i<10;i++) spawn(bx+rnd(-5,5), landY-2, {ang:-Math.PI/2+rnd(-0.5,0.5), speed:rnd(0.3,0.9), life:rnd(50,90), col:[200,210,230], g:-0.004, smoke:true});
+        sizzle();
+        phase='after'; pt=0;
+      }
+    }else if(phase==='after'){
+      if(pt>=AFTER_MS) finish();
+    }
+
+    ballR += (targetR*u - ballR)*0.08*k;
+    pbx = bx; pby = by;
+    const yy = (phase==='idle') ? tipY : by;
+    bx = cx + theta*(yy+60) + (phase==='idle'?0:rnd(-jit,jit)*0.5);
+    if(phase==='fall'){
+      fxc.strokeStyle = css(roundC(ballCol), 0.8); fxc.lineWidth = 2*u; fxc.lineCap='round';
+      fxc.beginPath(); fxc.moveTo(pbx,pby); fxc.lineTo(bx,by); fxc.stroke();
+    }
+  }
+
+  // ---------- 描画 ----------
+  function drawFx(k){
+    fxc.globalCompositeOperation = 'destination-out';
+    fxc.fillStyle = 'rgba(0,0,0,'+(1-Math.pow(0.78,k))+')';
+    fxc.fillRect(0,0,W,H);
+    fxc.globalCompositeOperation = 'lighter';
+    stepParts(k);
+  }
+
+  function drawScene(){
+    const c = scc;
+    c.globalCompositeOperation = 'source-over';
+    c.clearRect(0,0,W,H);
+
+    // 星
+    for(const s of stars){
+      const a = 0.25 + 0.3*Math.sin(s.p + T*0.001*s.f);
+      c.fillStyle = 'rgba(220,228,255,'+a+')';
+      c.fillRect(s.x, s.y, s.s, s.s);
+    }
+
+    // 水面
+    const wg = c.createLinearGradient(0,waterY,0,H);
+    wg.addColorStop(0,'rgba(20,32,58,0.6)');
+    wg.addColorStop(1,'rgba(4,7,15,0.95)');
+    c.fillStyle = wg; c.fillRect(0,waterY,W,H-waterY);
+    c.fillStyle = 'rgba(190,210,255,0.07)'; c.fillRect(0,waterY,W,1);
+
+    // 映り込み（火花の層を上下反転し、ゆらめかせて重ねる）
+    const live = phase!=='idle' || parts.length>0;
+    if(live){
+      c.globalCompositeOperation = 'lighter';
+      const N = 18, RH = H-waterY, sh = RH/N, STRETCH = 2.5;
+      for(let i=0;i<N;i++){
+        const sH = sh*STRETCH;
+        const sy = waterY - (i+1)*sH;
+        if(sy+sH <= 0) break;
+        const syc = Math.max(0, sy), shc = sH - (syc - sy);
+        const off = Math.sin(T*0.0016 + i*0.75)*(1.2+i*0.4);
+        c.globalAlpha = 0.5*(1 - i/N);
+        c.save();
+        c.translate(off, waterY + (i+1)*sh);
+        c.scale(1,-1);
+        c.drawImage(fx, 0, syc*DPR, W*DPR, shc*DPR, 0, (syc-sy)/STRETCH, W, shc/STRETCH);
+        c.restore();
+      }
+      c.globalAlpha = 1;
+      // 玉の映り込み
+      if(ballR>0.3 && !burnt){
+        const ry = waterY + (waterY-by)/STRETCH;
+        const rx = bx + Math.sin(T*0.0016 + ry*0.05)*2.5;
+        const rr = (22 + 60*flash)*u;
+        const g = c.createRadialGradient(rx,ry,0,rx,ry,rr);
+        g.addColorStop(0, css(roundC(ballCol), 0.35+0.3*flash));
+        g.addColorStop(1, css(roundC(ballCol), 0));
+        c.fillStyle = g;
+        c.save(); c.translate(rx,ry); c.scale(1.5,0.5); c.translate(-rx,-ry);
+        c.beginPath(); c.arc(rx,ry,rr,0,6.283); c.fill(); c.restore();
+      }
+      c.globalCompositeOperation = 'source-over';
+    }
+
+    // 波紋
+    for(let i=ripples.length-1;i>=0;i--){
+      const r = ripples[i];
+      r.r += 0.9; if(r.r>0) r.life -= 0.012;
+      if(r.life<=0){ ripples.splice(i,1); continue; }
+      if(r.r<=0) continue;
+      c.strokeStyle = 'rgba(200,220,255,'+(0.35*r.life)+')';
+      c.lineWidth = 1;
+      c.beginPath(); c.ellipse(r.x, r.y, r.r*u, r.r*u*0.28, 0, 0, 6.283); c.stroke();
+    }
+
+    // こより
+    const endY = (phase==='idle') ? tipY : by;
+    const sx = y => cx + theta*(y+60);
+    if(!burnt && phase!=='fall' && phase!=='after'){
+      c.lineCap = 'round';
+      c.strokeStyle = 'rgba(190,165,120,0.85)'; c.lineWidth = 2;
+      c.beginPath(); c.moveTo(sx(-10),-10); c.lineTo(sx(endY), endY); c.stroke();
+      for(let r=0;r<ROWS;r++){
+        const y0 = rowY(r)-gap/2+3, y1 = Math.min(rowY(r)+gap/2-3, endY);
+        if(y1<=y0) continue;
+        const g = c.createLinearGradient(0,y0,0,rowY(r)+gap/2);
+        g.addColorStop(0, hexOf(PAL[grid[r][0]].rgb));
+        g.addColorStop(1, hexOf(PAL[grid[r][1]].rgb));
+        c.strokeStyle = g; c.lineWidth = 3.2;
+        c.beginPath(); c.moveTo(sx(y0),y0); c.lineTo(sx(y1),y1); c.stroke();
+      }
+      // 燃えている間は、まだ届いていない段の色を小さな粒で見せる
+      if(phase!=='idle'){
+        for(let r=0;r<ROWS;r++){
+          const y = rowY(r);
+          const d = endY - y;
+          if(d<=0) continue;
+          const near = clamp(d/(gap*0.5), 0, 1);
+          const pull = 1-near;
+          for(let s=0;s<2;s++){
+            const ox = (s?1:-1)*SIDE*0.42*near;
+            c.fillStyle = css(PAL[grid[r][s]].rgb, 0.3+0.6*near);
+            c.beginPath(); c.arc(sx(y)+ox, y + pull*d, 3.6, 0, 6.283); c.fill();
+          }
+        }
+      }
+    }else if(phase==='fall' || phase==='after'){
+      // 燃え残ったこより
+      const top = rowY(0)-gap/2;
+      c.strokeStyle = 'rgba(190,165,120,0.6)'; c.lineWidth = 2; c.lineCap='round';
+      c.beginPath(); c.moveTo(sx(-10),-10); c.lineTo(sx(top),top); c.stroke();
+    }
+
+    c.globalCompositeOperation = 'lighter';
+    // 着火の炎
+    let flame = 0;
+    if(phase==='ignite') flame = 1;
+    else if(phase==='burn' && stage===0) flame = clamp(1 - (pt/DUR[0])*2.4, 0, 1);
+    if(flame>0){
+      const fh = (7 + 3*Math.sin(T*0.05) + rnd(0,2))*u;
+      c.save(); c.translate(bx, by-fh*0.9); c.scale(0.55,1.5);
+      const g = c.createRadialGradient(0,0,0,0,0,fh);
+      g.addColorStop(0,'rgba(255,240,200,'+(0.95*flame)+')');
+      g.addColorStop(0.5,'rgba(255,170,70,'+(0.6*flame)+')');
+      g.addColorStop(1,'rgba(255,120,40,0)');
+      c.fillStyle = g; c.beginPath(); c.arc(0,0,fh,0,6.283); c.fill(); c.restore();
+    }
+
+    // 火の玉
+    if(ballR>0.3 && !burnt){
+      const col = roundC(ballCol);
+      const pulse = 1 + 0.06*Math.sin(T*0.03);
+      const R = ballR*pulse;
+      const R1 = (70 + 190*flash)*u * clamp(ballR/(6*u), 0.3, 1.2);
+      let g = c.createRadialGradient(bx,by,0,bx,by,R1);
+      g.addColorStop(0, css(col, 0.14+0.24*flash)); g.addColorStop(1, css(col,0));
+      c.fillStyle = g; c.beginPath(); c.arc(bx,by,R1,0,6.283); c.fill();
+      const R2 = R*3.6;
+      g = c.createRadialGradient(bx,by,0,bx,by,R2);
+      g.addColorStop(0, css(col,0.75)); g.addColorStop(1, css(col,0));
+      c.fillStyle = g; c.beginPath(); c.arc(bx,by,R2,0,6.283); c.fill();
+      g = c.createRadialGradient(bx,by,0,bx,by,R);
+      g.addColorStop(0,'rgba(255,255,255,1)');
+      g.addColorStop(0.55,'rgba(255,236,190,1)');
+      g.addColorStop(1, css(col,0.9));
+      c.fillStyle = g; c.beginPath(); c.arc(bx,by,R,0,6.283); c.fill();
+    }
+    c.globalCompositeOperation = 'source-over';
+  }
+
+  // ---------- ループ ----------
+  let last = 0;
+  // 画面が閉じられたり隠れたりしたら、音を必ず止める
+  let lastFrameAt = Date.now(), audioPaused = false;
+  function pauseAudio(){
+    if(ac && !audioPaused){ audioPaused = true; ac.suspend(); }
+  }
+  document.addEventListener('visibilitychange', ()=>{ if(document.hidden) pauseAudio(); });
+  window.addEventListener('pagehide', pauseAudio);
+  window.addEventListener('blur', pauseAudio);
+  setInterval(()=>{ if(Date.now()-lastFrameAt > 600) pauseAudio(); }, 300);
+  function frame(ts){
+    if(!last) last = ts;
+    const dt = Math.min(50, ts-last); last = ts;
+    lastFrameAt = Date.now();
+    if(ac && audioPaused && !document.hidden){ audioPaused = false; ac.resume(); }
+    const k = dt/16.667;
+    T += dt;
+    update(dt, k);
+    drawFx(k);
+    drawScene();
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- 操作 ----------
+  lightBtn.addEventListener('click', light);
+  document.getElementById('shuffleBtn').addEventListener('click', ()=>{
+    if(phase!=='idle') return;
+    for(let r=0;r<ROWS;r++) for(let c=0;c<2;c++) grid[r][c] = (Math.random()*PAL.length)|0;
+    paintAll();
+  });
+  const soundBtn = document.getElementById('soundBtn');
+  soundBtn.addEventListener('click', ()=>{
+    soundOn = !soundOn;
+    soundBtn.textContent = soundOn ? '音 あり' : '音 なし';
+    soundBtn.setAttribute('aria-pressed', String(soundOn));
+    if(master) master.gain.value = soundOn?1:0;
+  });
+  window.addEventListener('resize', resize);
+
+  paintAll();
+  resize();
+  by = tipY; bx = cx;
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
