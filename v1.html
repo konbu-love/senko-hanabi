@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>線香花火メーカー</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-deep:#070912;
+    --bg-mid:#0d1220;
+    --paper:#e9dcc3;
+    --ember-gold:#e8b64f;
+    --line:#2a2f42;
+    --text-soft:#c9cfe0;
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{
+    margin:0; padding:0; min-height:100%;
+    background:
+      radial-gradient(ellipse at 50% -10%, #131a30 0%, var(--bg-mid) 45%, var(--bg-deep) 100%);
+    color:var(--text-soft);
+    font-family:'Noto Sans JP', sans-serif;
+    display:flex; justify-content:center;
+  }
+  .stars{
+    position:fixed; inset:0; pointer-events:none;
+    background-image:
+      radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,.5), transparent),
+      radial-gradient(1px 1px at 70% 15%, rgba(255,255,255,.35), transparent),
+      radial-gradient(1.5px 1.5px at 85% 60%, rgba(255,255,255,.4), transparent),
+      radial-gradient(1px 1px at 40% 80%, rgba(255,255,255,.3), transparent),
+      radial-gradient(1px 1px at 10% 65%, rgba(255,255,255,.3), transparent);
+    opacity:.6;
+  }
+  .wrap{
+    position:relative; width:100%; max-width:460px;
+    padding:28px 18px 40px;
+    display:flex; flex-direction:column; align-items:center; gap:18px;
+  }
+  h1{
+    font-family:'Shippori Mincho', serif;
+    font-weight:700;
+    font-size:26px;
+    letter-spacing:.14em;
+    margin:0;
+    color:#f4e8cf;
+    text-shadow:0 0 18px rgba(232,182,79,.35);
+  }
+  .sub{
+    font-size:12px;
+    letter-spacing:.06em;
+    color:#8b93ab;
+    text-align:center;
+    margin-top:-10px;
+    line-height:1.7;
+  }
+
+  .panel{
+    width:100%;
+    background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.015));
+    border:1px solid rgba(255,255,255,.07);
+    border-radius:16px;
+    padding:16px;
+  }
+  .panel-label{
+    font-size:11px; letter-spacing:.12em; color:#8b93ab; margin:0 0 10px 2px;
+    display:flex; align-items:center; gap:6px;
+  }
+  .panel-label::before{ content:''; width:12px; height:1px; background:#4a5170; display:inline-block; }
+
+  .grid{
+    display:flex; flex-direction:column; gap:8px;
+  }
+  .row{
+    display:flex; align-items:center; gap:10px;
+  }
+  .row-idx{
+    width:16px; font-size:10px; color:#5c637d; text-align:center; font-variant-numeric:tabular-nums;
+  }
+  .cell{
+    width:44px; height:44px; border-radius:50%;
+    border:2px solid rgba(255,255,255,.12);
+    cursor:pointer;
+    transition:transform .12s ease, box-shadow .2s ease;
+    box-shadow: inset 0 -6px 10px rgba(0,0,0,.25), inset 0 3px 6px rgba(255,255,255,.15);
+  }
+  .cell:active{ transform:scale(.9); }
+  .row-tag{ font-size:10px; color:#5c637d; margin-left:auto; }
+
+  canvas{
+    display:block; width:100%; height:auto;
+    border-radius:16px;
+    background:transparent;
+  }
+
+  .controls{
+    display:flex; gap:10px; width:100%;
+  }
+  button{
+    flex:1;
+    font-family:'Noto Sans JP', sans-serif;
+    font-size:13px;
+    letter-spacing:.08em;
+    padding:13px 10px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.12);
+    cursor:pointer;
+    transition:transform .1s ease, opacity .2s ease, box-shadow .2s ease;
+  }
+  button:active{ transform:scale(.97); }
+  #lightBtn{
+    background:linear-gradient(180deg, #f2c869, #d99a2b);
+    color:#2a1a05;
+    font-weight:700;
+    border:none;
+    box-shadow:0 4px 18px rgba(233,182,79,.35);
+  }
+  #lightBtn:disabled{ opacity:.4; box-shadow:none; cursor:default; }
+  #resetBtn{
+    background:transparent;
+    color:#9aa1bb;
+  }
+
+  .footnote{
+    font-size:10.5px; color:#565d78; text-align:center; line-height:1.8; padding:0 6px;
+  }
+</style>
+</head>
+<body>
+<div class="stars"></div>
+<div class="wrap">
+  <h1>線香花火メーカー</h1>
+  <p class="sub">丸をタップして色を仕込む。下から一段ずつ<br>色が混ざりながら、火花が上へ昇っていく。</p>
+
+  <div class="panel">
+    <p class="panel-label">色を並べる（下から順に混ざります）</p>
+    <div class="grid" id="grid"></div>
+  </div>
+
+  <canvas id="stage" width="420" height="480"></canvas>
+
+  <div class="controls">
+    <button id="lightBtn">火をつける</button>
+    <button id="resetBtn">リセット</button>
+  </div>
+
+  <p class="footnote">最後は本物の線香花火のように、小さな玉になって<br>ぽとりと落ちて消える。</p>
+</div>
+
+<script>
+(function(){
+  // ---------- palette ----------
+  const PALETTE = [
+    {hex:'#57c26a'}, // green
+    {hex:'#ffd35a'}, // yellow
+    {hex:'#ff5a5a'}, // red
+    {hex:'#4aa8ff'}, // blue
+    {hex:'#ff9a3d'}, // orange
+    {hex:'#c579ea'}, // purple
+  ];
+  const ROWS = 5;
+  // default state, top row = index0 ... bottom row = index4
+  let grid = [
+    [0,1],
+    [2,3],
+    [4,1],
+    [4,1],
+    [2,2],
+  ];
+
+  // ---------- build editor ----------
+  const gridEl = document.getElementById('grid');
+  function buildGrid(){
+    gridEl.innerHTML = '';
+    for(let r=0;r<ROWS;r++){
+      const rowEl = document.createElement('div');
+      rowEl.className = 'row';
+      const idx = document.createElement('div');
+      idx.className = 'row-idx';
+      idx.textContent = ROWS - r;
+      rowEl.appendChild(idx);
+      for(let c=0;c<2;c++){
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.style.background = PALETTE[grid[r][c]].hex;
+        cell.addEventListener('click', ()=>{
+          if(state.phase !== 'idle') return;
+          grid[r][c] = (grid[r][c]+1) % PALETTE.length;
+          cell.style.background = PALETTE[grid[r][c]].hex;
+        });
+        rowEl.appendChild(cell);
+      }
+      const tag = document.createElement('div');
+      tag.className = 'row-tag';
+      tag.textContent = r===0 ? '上' : (r===ROWS-1 ? '下' : '');
+      rowEl.appendChild(tag);
+      gridEl.appendChild(rowEl);
+    }
+  }
+  buildGrid();
+
+  // ---------- canvas setup ----------
+  const canvas = document.getElementById('stage');
+  const ctx = canvas.getContext('2d');
+  const DPR = Math.min(window.devicePixelRatio || 1, 2);
+  const CSS_W = 420, CSS_H = 480;
+  canvas.width = CSS_W * DPR;
+  canvas.height = CSS_H * DPR;
+  ctx.scale(DPR, DPR);
+  canvas.style.width = CSS_W+'px';
+  canvas.style.height = CSS_H+'px';
+
+  const TOP_Y = 60, BOTTOM_Y = 400;
+  const STICK_X = CSS_W/2;
+  const START_Y = BOTTOM_Y + 40; // ignition point, below the visible stick
+
+  function rowY(r){ // r: 0(top)..ROWS-1(bottom)
+    return TOP_Y + (BOTTOM_Y - TOP_Y) * (r/(ROWS-1));
+  }
+
+  function mixHex(h1, h2){
+    const c1 = hexToRgb(h1), c2 = hexToRgb(h2);
+    return rgbToHex(
+      (c1.r+c2.r)/2, (c1.g+c2.g)/2, (c1.b+c2.b)/2
+    );
+  }
+  function mixMany(hexes){
+    let r=0,g=0,b=0;
+    hexes.forEach(h=>{ const c=hexToRgb(h); r+=c.r; g+=c.g; b+=c.b; });
+    const n = hexes.length;
+    return rgbToHex(r/n,g/n,b/n);
+  }
+  function hexToRgb(hex){
+    const n = parseInt(hex.slice(1),16);
+    return { r:(n>>16)&255, g:(n>>8)&255, b:n&255 };
+  }
+  function rgbToHex(r,g,b){
+    const h = v => Math.round(v).toString(16).padStart(2,'0');
+    return '#'+h(r)+h(g)+h(b);
+  }
+  function rgba(hex, a){
+    const c = hexToRgb(hex);
+    return `rgba(${c.r},${c.g},${c.b},${a})`;
+  }
+
+  // ---------- particles ----------
+  let particles = [];
+  function spawnBurst(x, y, colorPool, count, spread){
+    for(let i=0;i<count;i++){
+      const ang = Math.random()*Math.PI*2;
+      const speed = (0.4 + Math.random()*1.6) * spread;
+      particles.push({
+        x, y,
+        vx: Math.cos(ang)*speed,
+        vy: Math.sin(ang)*speed - speed*0.3,
+        life: 1,
+        decay: 0.012 + Math.random()*0.018,
+        size: 1 + Math.random()*1.8,
+        color: colorPool[Math.floor(Math.random()*colorPool.length)],
+        gravity: 0.045 + Math.random()*0.02,
+        flicker: Math.random()*Math.PI*2
+      });
+    }
+  }
+  function spawnTrail(x, y, color){
+    particles.push({
+      x: x + (Math.random()-0.5)*4,
+      y: y + (Math.random()-0.5)*4,
+      vx: (Math.random()-0.5)*0.6,
+      vy: (Math.random()*0.3),
+      life: 1,
+      decay: 0.03 + Math.random()*0.03,
+      size: 0.8 + Math.random()*1.2,
+      color,
+      gravity: 0.03,
+      flicker: Math.random()*Math.PI*2
+    });
+  }
+  function updateParticles(dt){
+    for(let i=particles.length-1;i>=0;i--){
+      const p = particles[i];
+      p.vy += p.gravity;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.life -= p.decay;
+      if(p.life<=0) particles.splice(i,1);
+    }
+  }
+  function drawParticles(){
+    particles.forEach(p=>{
+      const flick = 0.7 + 0.3*Math.sin(p.flicker + performance.now()*0.02);
+      const a = Math.max(0, p.life) * flick;
+      ctx.beginPath();
+      const grad = ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,p.size*3);
+      grad.addColorStop(0, rgba(p.color, a));
+      grad.addColorStop(1, rgba(p.color, 0));
+      ctx.fillStyle = grad;
+      ctx.arc(p.x,p.y,p.size*3,0,Math.PI*2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.fillStyle = rgba('#fff8e6', a*0.8);
+      ctx.arc(p.x,p.y,p.size*0.5,0,Math.PI*2);
+      ctx.fill();
+    });
+  }
+
+  // ---------- state machine ----------
+  const state = {
+    phase: 'idle', // idle | rising | finale | falling | done
+    segIndex: -1,
+    segStart: 0,
+    emberY: START_Y,
+    emberColor: '#e8b64f',
+    visitedColors: [],
+    fallVy: 0,
+  };
+
+  const travelOrder = [4,3,2,1,0]; // row indices visited bottom -> top
+  const SEG_MS = 780;
+
+  const lightBtn = document.getElementById('lightBtn');
+  const resetBtn = document.getElementById('resetBtn');
+
+  lightBtn.addEventListener('click', ()=>{
+    if(state.phase !== 'idle') return;
+    state.phase = 'rising';
+    state.segIndex = 0;
+    state.segStart = performance.now();
+    state.emberY = START_Y;
+    state.visitedColors = [];
+    state.emberColor = '#f2d38a';
+    lightBtn.disabled = true;
+  });
+  resetBtn.addEventListener('click', ()=>{
+    particles = [];
+    state.phase = 'idle';
+    state.emberY = START_Y;
+    lightBtn.disabled = false;
+  });
+
+  function rowMixColor(r){
+    return mixHex(PALETTE[grid[r][0]].hex, PALETTE[grid[r][1]].hex);
+  }
+
+  // ---------- drawing ----------
+  function drawStick(){
+    // twisted paper thread
+    const grad = ctx.createLinearGradient(0, TOP_Y-20, 0, BOTTOM_Y+20);
+    grad.addColorStop(0, '#7a5a33');
+    grad.addColorStop(1, '#4a3620');
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 3.5;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(STICK_X, TOP_Y-24);
+    ctx.lineTo(STICK_X, START_Y);
+    ctx.stroke();
+
+    // little paper tuft at very top (where it'd be held) - subtle
+    ctx.fillStyle = '#8a6a3f';
+    ctx.beginPath();
+    ctx.arc(STICK_X, TOP_Y-24, 4, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  function drawRowMarkers(){
+    for(let r=0;r<ROWS;r++){
+      const y = rowY(r);
+      const passed = state.phase==='rising' && travelOrder.indexOf(r) < travelOrder.indexOf(currentTravelRow());
+      const isCurrentTarget = state.phase==='rising' && r === travelOrder[state.segIndex];
+      const dim = state.phase==='idle' ? 1 : (passed || isCurrentTarget ? 1 : 0.35);
+
+      ctx.globalAlpha = dim * 0.9;
+      // two small dots representing the row's colors, either side of stick
+      const c0 = PALETTE[grid[r][0]].hex;
+      const c1 = PALETTE[grid[r][1]].hex;
+      ctx.beginPath();
+      ctx.fillStyle = c0;
+      ctx.arc(STICK_X-14, y, 4.5, 0, Math.PI*2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.fillStyle = c1;
+      ctx.arc(STICK_X+14, y, 4.5, 0, Math.PI*2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  function currentTravelRow(){
+    if(state.phase !== 'rising') return -1;
+    return travelOrder[state.segIndex];
+  }
+
+  function easeInOutSine(t){ return -(Math.cos(Math.PI*t)-1)/2; }
+
+  function updateRising(now){
+    const targetRow = travelOrder[state.segIndex];
+    const fromY = state.segIndex===0 ? START_Y : rowY(travelOrder[state.segIndex-1]);
+    const toY = rowY(targetRow);
+    const t = Math.min(1, (now - state.segStart)/SEG_MS);
+    const et = easeInOutSine(t);
+    state.emberY = fromY + (toY-fromY)*et;
+
+    // trailing sparks colored by the row currently being approached, mixed a bit with cumulative
+    if(Math.random() < 0.9){
+      const rc = rowMixColor(targetRow);
+      const col = state.visitedColors.length
+        ? mixHex(rc, mixMany(state.visitedColors))
+        : rc;
+      spawnTrail(STICK_X + (Math.random()-0.5)*6, state.emberY, col);
+    }
+    if(Math.random() < 0.5){
+      const c0 = PALETTE[grid[targetRow][0]].hex;
+      const c1 = PALETTE[grid[targetRow][1]].hex;
+      spawnBurst(STICK_X, state.emberY, [c0,c1], 1, 1.2);
+    }
+
+    state.emberColor = state.visitedColors.length
+      ? mixMany([...state.visitedColors, rowMixColor(targetRow)])
+      : rowMixColor(targetRow);
+
+    if(t>=1){
+      // arrived at this row: burst
+      const rc = rowMixColor(targetRow);
+      state.visitedColors.push(rc);
+      const pool = [PALETTE[grid[targetRow][0]].hex, PALETTE[grid[targetRow][1]].hex, rc];
+      spawnBurst(STICK_X, toY, pool, 16, 2.1);
+      state.emberColor = mixMany(state.visitedColors);
+
+      if(state.segIndex < travelOrder.length-1){
+        state.segIndex++;
+        state.segStart = now;
+      } else {
+        state.phase = 'finale';
+        state.segStart = now;
+      }
+    }
+  }
+
+  function updateFinale(now){
+    const t = (now - state.segStart)/1;
+    if(t <= 1){
+      const finalColor = mixMany(state.visitedColors);
+      spawnBurst(STICK_X, state.emberY, [finalColor, '#fff3d6'], 55, 2.8);
+      state.phase = 'falling';
+      state.fallVy = 0.6;
+    }
+  }
+
+  function updateFalling(){
+    state.emberY += state.fallVy;
+    state.fallVy += 0.10;
+    if(Math.random()<0.6){
+      spawnTrail(STICK_X + (Math.random()-0.5)*4, state.emberY, state.emberColor);
+    }
+    if(state.emberY > START_Y + 20){
+      state.phase = 'done';
+      setTimeout(()=>{
+        state.phase = 'idle';
+        state.emberY = START_Y;
+        lightBtn.disabled = false;
+      }, 300);
+    }
+  }
+
+  function drawEmber(){
+    if(state.phase==='idle' || state.phase==='done') return;
+    const glowSize = state.phase==='falling' ? 6 : 9;
+    const grad = ctx.createRadialGradient(STICK_X, state.emberY, 0, STICK_X, state.emberY, glowSize*2.4);
+    grad.addColorStop(0, rgba('#fff6da', 0.95));
+    grad.addColorStop(0.35, rgba(state.emberColor, 0.85));
+    grad.addColorStop(1, rgba(state.emberColor, 0));
+    ctx.beginPath();
+    ctx.fillStyle = grad;
+    ctx.arc(STICK_X, state.emberY, glowSize*2.4, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.fillStyle = '#fffaf0';
+    ctx.arc(STICK_X, state.emberY, glowSize*0.35, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // ---------- main loop ----------
+  let last = performance.now();
+  function frame(now){
+    const dt = now - last; last = now;
+
+    // trail fade
+    ctx.fillStyle = 'rgba(7,9,18,0.22)';
+    ctx.fillRect(0,0,CSS_W,CSS_H);
+
+    drawStick();
+    drawRowMarkers();
+
+    if(state.phase==='rising') updateRising(now);
+    if(state.phase==='finale') updateFinale(now);
+    if(state.phase==='falling') updateFalling();
+
+    updateParticles(dt);
+    drawParticles();
+    drawEmber();
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>
